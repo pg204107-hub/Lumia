@@ -1,0 +1,8 @@
+
+{
+  "name": "Lumina: The Garden of Unspoken Words",
+  "description": "An emotional journey designed to help you reconnect with memories, lost loved ones, and your own past through AI-generated letters, portraits, and spoken word.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

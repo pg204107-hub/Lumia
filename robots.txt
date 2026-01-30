@@ -1,0 +1,6 @@
+
+User-agent: *
+Allow: /
+
+# Sitemap would go here if generated
+# Sitemap: https://lumina-memory.web.app/sitemap.xml
