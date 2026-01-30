@@ -13,6 +13,7 @@ const App: React.FC = () => {
   });
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [loadingStep, setLoadingStep] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   const startExperience = () => {
+    setErrorMsg(null);
     setState(AppState.INPUT);
   };
 
@@ -32,6 +34,7 @@ const App: React.FC = () => {
   const generateContent = async () => {
     if (!memory.name || !memory.relationship || !memory.detail) return;
     
+    setErrorMsg(null);
     setState(AppState.GENERATING);
     setLoadingStep('Searching for the right words...');
     
@@ -51,10 +54,16 @@ const App: React.FC = () => {
         citations: letterRes.citations 
       });
       setState(AppState.REVEAL);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      const message = error?.message || "Something went wrong in the garden.";
+      const isQuota = message.toLowerCase().includes("quota") || message.toLowerCase().includes("429");
+      
+      setErrorMsg(isQuota 
+        ? "The garden is currently overwhelmed with too many echoes (API Quota Exceeded). Please wait a moment and try again." 
+        : `The connection to the garden was lost: ${message}`
+      );
       setState(AppState.INPUT);
-      alert("The connection to the garden was lost. Please try again.");
     }
   };
 
@@ -103,7 +112,6 @@ const App: React.FC = () => {
   };
 
   const submitFeedback = () => {
-    // In a real app, you'd send feedbackText to a server.
     setFeedbackSubmitted(true);
     setTimeout(() => {
       setShowFeedback(false);
@@ -118,6 +126,7 @@ const App: React.FC = () => {
     setResult(null);
     setMemory({ name: '', relationship: '', detail: '', mood: 'nostalgic' });
     setShowFeedback(false);
+    setErrorMsg(null);
   };
 
   return (
@@ -155,6 +164,12 @@ const App: React.FC = () => {
           </header>
           
           <div className="space-y-6 bg-slate-900/50 p-8 rounded-3xl border border-slate-800 backdrop-blur-xl shadow-2xl">
+            {errorMsg && (
+              <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-xl text-red-200 text-sm">
+                {errorMsg}
+              </div>
+            )}
+
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-widest text-slate-500">Their Name</label>
               <input 
@@ -172,7 +187,7 @@ const App: React.FC = () => {
                 name="relationship"
                 value={memory.relationship}
                 onChange={handleInputChange}
-                placeholder="A grandmother, a childhood friend, a version of you..."
+                placeholder="A grandmother, a friend..."
                 className="w-full bg-transparent border-b border-slate-700 py-2 focus:border-amber-400 outline-none transition-colors"
               />
             </div>
@@ -183,7 +198,7 @@ const App: React.FC = () => {
                 name="detail"
                 value={memory.detail}
                 onChange={handleInputChange}
-                placeholder="The way they smelled of cinnamon, the blue bicycle, a phrase they always said..."
+                placeholder="The way they smelled of cinnamon, the blue bicycle..."
                 rows={3}
                 className="w-full bg-transparent border-b border-slate-700 py-2 focus:border-amber-400 outline-none transition-colors resize-none"
               />
@@ -221,14 +236,14 @@ const App: React.FC = () => {
             <div className="absolute inset-0 border-4 border-amber-500/20 rounded-full"></div>
             <div className="absolute inset-0 border-4 border-t-amber-500 rounded-full animate-spin"></div>
           </div>
-          <p className="text-amber-100/70 font-serif italic text-xl animate-pulse">
+          <p className="text-amber-100/70 font-serif italic text-xl animate-pulse text-center px-4">
             {loadingStep}
           </p>
         </div>
       )}
 
       {state === AppState.REVEAL && result && (
-        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-center fade-in z-10">
+        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-12 items-center fade-in z-10 px-4 md:px-0">
           <div className="space-y-6 order-2 lg:order-1">
             <div className="relative group">
                <img 
@@ -251,7 +266,7 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex flex-col space-y-4 px-4">
+            <div className="flex flex-col space-y-4">
               <div className="flex justify-between items-center">
                 <button 
                   onClick={playAudio}
@@ -272,13 +287,13 @@ const App: React.FC = () => {
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
                   </svg>
-                  <span className="text-xs uppercase tracking-widest">Leave a reflection</span>
+                  <span className="text-xs uppercase tracking-widest">Reflection</span>
                 </button>
               </div>
 
               {result.citations && result.citations.length > 0 && (
                 <div className="pt-4 border-t border-slate-800">
-                  <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-2">Sources discovered from the web:</p>
+                  <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-2">Sources discovered:</p>
                   <ul className="space-y-1">
                     {result.citations.map((cite, idx) => (
                       <li key={idx} className="text-xs">
@@ -303,12 +318,11 @@ const App: React.FC = () => {
               >
                 Return to stillness
               </button>
-             <div className="h-24"></div> {/* Spacer for scrolling */}
+             <div className="h-24"></div>
           </div>
         </div>
       )}
 
-      {/* Feedback Modal */}
       {showFeedback && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md fade-in">
           <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6">
@@ -316,7 +330,7 @@ const App: React.FC = () => {
             {!feedbackSubmitted ? (
               <>
                 <p className="text-slate-400 text-sm leading-relaxed">
-                  Your reflection helps us nurture the garden. How did this experience feel to you?
+                  How did this experience feel to you?
                 </p>
                 <textarea 
                   value={feedbackText}
@@ -351,13 +365,6 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Persistent Audio Controls at bottom if reveal state */}
-      {state === AppState.REVEAL && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40 opacity-40">
-           <p className="text-[10px] text-slate-600 uppercase tracking-widest">A memory by Lumina</p>
         </div>
       )}
     </div>
