@@ -2,7 +2,14 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { MemoryData } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// We initialize a helper to get the AI instance
+function getAI() {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please set the API_KEY environment variable.");
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 export interface LetterGenerationResponse {
   text: string;
@@ -10,15 +17,15 @@ export interface LetterGenerationResponse {
 }
 
 export async function generateEmotionalLetter(data: MemoryData): Promise<LetterGenerationResponse> {
+  const ai = getAI();
   const prompt = `Write a deeply moving, poetic, and heart-wrenching letter from the perspective of ${data.name} (${data.relationship}) to the person reading this. 
   The mood should be ${data.mood}. 
   Incorporate this specific detail: "${data.detail}". 
   The letter should feel like a message from across time, focusing on small sensory memories, the things left unsaid, and the enduring nature of love despite loss. 
   Keep it under 300 words. Do not use generic phrases. Make it feel authentic, raw, and devastatingly beautiful. 
   
-  IMPORTANT: Use Google Search to look up "${data.name}" or the specific detail "${data.detail}". 
-  If they refer to a real historical figure, a specific event in a certain year, or a famous location, use that factual context to ground the letter in reality. 
-  For example, if the detail is "the blizzard of 78", find real sensory details from that event.
+  IMPORTANT: Use Google Search to look up "${data.name}" or "${data.detail}". 
+  If they refer to a real historical figure, a specific event, or a famous location, use that factual context to ground the letter in reality. 
   Focus on the 'why' they are missed. No conversational filler at start/end.`;
 
   const response = await ai.models.generateContent({
@@ -42,6 +49,7 @@ export async function generateEmotionalLetter(data: MemoryData): Promise<LetterG
 }
 
 export async function generateMemoryPortrait(data: MemoryData, letterContent: string): Promise<string> {
+  const ai = getAI();
   const prompt = `A cinematic, moody, and ethereal photograph representing a fleeting memory. 
   Context: ${data.relationship} - ${data.detail}. 
   Style: Soft focus, golden hour lighting, slightly grainy like an old film photo, minimalist composition. 
@@ -68,6 +76,7 @@ export async function generateMemoryPortrait(data: MemoryData, letterContent: st
 }
 
 export async function generateLetterVoice(letter: string): Promise<string> {
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
     contents: [{ parts: [{ text: `Read this letter with a gentle, slow, and deeply emotional tone, pausing for breath and reflecting the weight of the words: ${letter}` }] }],
