@@ -21,6 +21,9 @@ const App: React.FC = () => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
+  // Helper to prevent bursting the API too fast
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
   const startExperience = () => {
     setErrorMsg(null);
     setState(AppState.INPUT);
@@ -39,12 +42,17 @@ const App: React.FC = () => {
     setLoadingStep('Searching for the right words...');
     
     try {
+      // Step 1: Generate Letter
       const letterRes = await gemini.generateEmotionalLetter(memory);
       
+      // Step 2: Pause slightly longer to help with free tier quota
       setLoadingStep('Capturing a flickering memory...');
+      await delay(2000); 
       const imageUrl = await gemini.generateMemoryPortrait(memory, letterRes.text);
       
+      // Step 3: Another pause
       setLoadingStep('Giving the memory a voice...');
+      await delay(2000);
       const audioData = await gemini.generateLetterVoice(letterRes.text);
       
       setResult({ 
@@ -57,10 +65,10 @@ const App: React.FC = () => {
     } catch (error: any) {
       console.error(error);
       const message = error?.message || "Something went wrong in the garden.";
-      const isQuota = message.toLowerCase().includes("quota") || message.toLowerCase().includes("429");
+      const isQuota = message.toLowerCase().includes("quota") || message.toLowerCase().includes("429") || message.toLowerCase().includes("exhausted");
       
       setErrorMsg(isQuota 
-        ? "The garden is currently overwhelmed with too many echoes (API Quota Exceeded). Please wait a moment and try again." 
+        ? "The garden is overwhelmed by too many echoes right now. Please wait about 30 seconds for the silence to return, then try again." 
         : `The connection to the garden was lost: ${message}`
       );
       setState(AppState.INPUT);
@@ -165,7 +173,7 @@ const App: React.FC = () => {
           
           <div className="space-y-6 bg-slate-900/50 p-8 rounded-3xl border border-slate-800 backdrop-blur-xl shadow-2xl">
             {errorMsg && (
-              <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-xl text-red-200 text-sm">
+              <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-xl text-red-200 text-sm animate-pulse">
                 {errorMsg}
               </div>
             )}
@@ -231,14 +239,15 @@ const App: React.FC = () => {
       )}
 
       {state === AppState.GENERATING && (
-        <div className="flex flex-col items-center justify-center space-y-6 fade-in">
+        <div className="flex flex-col items-center justify-center space-y-6 fade-in text-center px-6">
           <div className="relative w-24 h-24">
             <div className="absolute inset-0 border-4 border-amber-500/20 rounded-full"></div>
             <div className="absolute inset-0 border-4 border-t-amber-500 rounded-full animate-spin"></div>
           </div>
-          <p className="text-amber-100/70 font-serif italic text-xl animate-pulse text-center px-4">
+          <p className="text-amber-100/70 font-serif italic text-xl animate-pulse">
             {loadingStep}
           </p>
+          <p className="text-slate-600 text-xs uppercase tracking-widest">Patience is the gardener's virtue</p>
         </div>
       )}
 
