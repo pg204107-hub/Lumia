@@ -2,11 +2,24 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { MemoryData } from "../types";
 
-// We initialize a helper to get the AI instance
+// Helper for retrying API calls with exponential backoff
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const isRateLimit = error?.message?.includes("429") || error?.message?.toLowerCase().includes("exhausted");
+    if (retries > 0 && isRateLimit) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callWithRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
 function getAI() {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key is missing. Please set the API_KEY environment variable.");
+    throw new Error("API Key is missing.");
   }
   return new GoogleGenAI({ apiKey });
 }
@@ -21,76 +34,65 @@ export async function generateEmotionalLetter(data: MemoryData): Promise<LetterG
   const prompt = `Write a deeply moving, poetic, and heart-wrenching letter from the perspective of ${data.name} (${data.relationship}) to the person reading this. 
   The mood should be ${data.mood}. 
   Incorporate this specific detail: "${data.detail}". 
-  The letter should feel like a message from across time, focusing on small sensory memories, the things left unsaid, and the enduring nature of love despite loss. 
-  Keep it under 300 words. Do not use generic phrases. Make it feel authentic, raw, and devastatingly beautiful. 
-  
-  IMPORTANT: Use Google Search to look up "${data.name}" or "${data.detail}". 
-  If they refer to a real historical figure, a specific event, or a famous location, use that factual context to ground the letter in reality. 
-  Focus on the 'why' they are missed. No conversational filler at start/end.`;
+  Focus on small sensory memories and the enduring nature of love. Keep it under 200 words. 
+  IMPORTANT: Use factual context for "${data.name}" if they are a real person. No conversational filler.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: prompt,
-    config: {
-      temperature: 0.8,
-      tools: [{ googleSearch: {} }],
-    },
+  return callWithRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        temperature: 0.8,
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    const text = response.text || "The words were lost in the mist...";
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const citations = groundingChunks
+      .map((chunk: any) => chunk.web)
+      .filter((web: any) => web && web.uri && web.title)
+      .map((web: any) => ({ title: web.title, uri: web.uri }));
+
+    return { text, citations };
   });
-
-  const text = response.text || "I couldn't find the words just yet...";
-  const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  
-  const citations = groundingChunks
-    .map((chunk: any) => chunk.web)
-    .filter((web: any) => web && web.uri && web.title)
-    .map((web: any) => ({ title: web.title, uri: web.uri }));
-
-  return { text, citations };
 }
 
 export async function generateMemoryPortrait(data: MemoryData, letterContent: string): Promise<string> {
   const ai = getAI();
-  const prompt = `A cinematic, moody, and ethereal photograph representing a fleeting memory. 
-  Context: ${data.relationship} - ${data.detail}. 
-  Style: Soft focus, golden hour lighting, slightly grainy like an old film photo, minimalist composition. 
-  The image should evoke a feeling of ${data.mood} and longing. 
-  No text in image. Focus on symbolic elements like a shadow, an empty chair, or a specific object mentioned in: ${letterContent.substring(0, 100)}`;
+  const prompt = `A cinematic, moody photograph representing a fleeting memory of ${data.name} (${data.relationship}). 
+  Detail: ${data.detail}. 
+  Style: Soft focus, film grain, nostalgic lighting. No text.`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: [{ text: prompt }],
-    config: {
-      imageConfig: {
-        aspectRatio: "4:3"
-      }
+  return callWithRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: [{ text: prompt }],
+      config: { imageConfig: { aspectRatio: "4:3" } }
+    });
+
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
+    throw new Error("No image data found");
   });
-
-  let imageUrl = '';
-  for (const part of response.candidates[0].content.parts) {
-    if (part.inlineData) {
-      imageUrl = `data:image/png;base64,${part.inlineData.data}`;
-    }
-  }
-  return imageUrl;
 }
 
 export async function generateLetterVoice(letter: string): Promise<string> {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Read this letter with a gentle, slow, and deeply emotional tone, pausing for breath and reflecting the weight of the words: ${letter}` }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
+  return callWithRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: `Read with gentle emotion: ${letter}` }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
         },
       },
-    },
+    });
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || '';
   });
-
-  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || '';
 }
 
 export async function decodeAudio(base64: string, ctx: AudioContext): Promise<AudioBuffer> {
@@ -100,12 +102,10 @@ export async function decodeAudio(base64: string, ctx: AudioContext): Promise<Au
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  
   const dataInt16 = new Int16Array(bytes.buffer);
-  const frameCount = dataInt16.length;
-  const buffer = ctx.createBuffer(1, frameCount, 24000);
+  const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
   const channelData = buffer.getChannelData(0);
-  for (let i = 0; i < frameCount; i++) {
+  for (let i = 0; i < dataInt16.length; i++) {
     channelData[i] = dataInt16[i] / 32768.0;
   }
   return buffer;
